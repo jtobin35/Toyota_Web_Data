@@ -1,0 +1,285 @@
+import pandas as pd
+import re
+import requests
+from bs4 import BeautifulSoup
+import numpy as np
+import pandas as pd
+import matplotlib
+import matplotlib.pyplot as plt
+
+from IPython import display
+from ipywidgets import interact, widgets
+
+headers = {'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) AppleWebKit/601.3.9 (KHTML, like Gecko) Version/9.0.2 Safari/601.3.9'}
+
+#website intrested in scraping
+url = 'https://www.cars.com/for-sale/searchresults.action/?mkId=20088&page=1&perPage=100&rd=99999&searchSource=PAGINATION&sort=relevance&zc=22030'
+
+#get the HTML from the website of interest
+response=requests.get(url,headers=headers)
+
+#Use Beautiful soup package read the HTML as text
+soup = BeautifulSoup(response.content,'lxml')
+
+
+#list of pages that are able to be clicked through, this website has 50 different pages, can be used for loop
+pages = soup.find('ul',class_="page-list")
+
+#list of the pages that I am not on
+links = pages.find_all('a',class_="not-current")
+
+urls = []
+
+
+
+#look at each line within the links, if the link is a digit, set to pageNume, else set to None. If not None append to bin.
+for link in links:
+    pageNum = int(link.text) if link.text.isdigit() else None
+    if pageNum != None:
+        urls.append(pageNum)
+        pages = list(range(urls[0]-1, urls[-1]+1))
+
+       
+#create bins that I will add the information from the website into
+product_info=[] #List to store name of the product
+prices=[] #List to store price of the product
+mileage=[] #List to store mileage of the product
+info=[] #Store additional information, color, drive, etc
+infonew=[] #cleans the additional info
+dealer=[]
+
+for i in pages:
+    headers = {'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) AppleWebKit/601.3.9 (KHTML, like Gecko) Version/9.0.2 Safari/601.3.9'}
+    newURL = 'https://www.cars.com/for-sale/searchresults.action/?mkId=20088&page=' + str(i) +'&perPage=100&rd=99999&searchSource=PAGINATION&sort=relevance&zc=22030'
+    #get the HTML from the website of interest
+    response=requests.get(newURL,headers=headers)
+
+    #Use Beautiful soup package read the HTML as text
+    soup = BeautifulSoup(response.content,'lxml')
+    product_div = soup.find_all ('div',class_ = "listing-row__details")
+    
+#break
+
+    count =1
+    for j in product_div:
+        #the product info is under h2 take the text, strip it of whitespace, replace the word space to comma so it's 
+        #comma delimited
+        product = j.find('h2', class_="listing-row__title").text.lstrip().rstrip().replace(" ", ",")
+        #Mileage information of the cars get rid of spacing and breaks
+        itemMileage = j.find('span', class_="listing-row__mileage").text.replace(" ", "").strip('\n')
+        #price of the cars
+        itemPrice = j.find('span', class_="listing-row__price").text.replace(" ", "").strip('\n')
+        #additional info is the color of the car (exterior / interior), mileage, drivetrain
+        additional = j.find('ul', class_="listing-row__meta").text.lstrip().rstrip().replace(" ", "").strip('\n')
+        #remove the line whitespace issues with the additional info
+        additionalnew = re.sub('\s+',' ',additional)
+        #price of the cars
+        dealerinfo = j.find('div', class_="listing-row__dealer").text.replace(" ", "")
+        print('%s Price: %s, Item Name: %s, Mileage: %s' %(count,itemPrice,product,itemMileage))
+        product_info.append(product)
+        prices.append(itemPrice)
+        mileage.append(itemMileage)
+        info.append(additional)
+        infonew.append(additionalnew)
+        dealer.append(dealerinfo)
+        count = count + (1)
+#break
+
+# creating a datafram with the bins that were created and appended to
+Toyota_df = pd.DataFrame(
+    {'Type': product_info,
+     'Mileage': mileage,
+     'Prices': prices,
+     'Additional': infonew,
+     'Dealer': dealer
+    })
+Toyota_df.info()
+
+#break
+
+
+#Remove the pattern of '\n\n\n' space issues within the dealer information using replace & regex
+Toyota_df = Toyota_df.replace(r'\n\n\n',  ',', regex=True)
+Toyota_df = Toyota_df.replace(r'\n',  '', regex=True)
+Toyota_df = Toyota_df.replace(r',,,,,,',  ',', regex=True)
+Toyota_df.Dealer = Toyota_df.Dealer.str.replace(' ', '')
+
+#The type column is comma delimited, I want to split these into a list so that I can select by location
+Toyota_df['Type'] = Toyota_df['Type'].str.split(',')
+#The type column is : delimited, I want to split these into a list so that I can select by location
+Toyota_df['Additional'] = Toyota_df['Additional'].str.split(':')
+#The type column is comma delimited, I want to split these into a list so that I can select by location
+Toyota_df['Dealer'] = Toyota_df['Dealer'].str.split(',')
+
+
+Toyota_df['Model_Year'] = Toyota_df.apply(lambda row: row.Type[0], axis = 1) 
+Toyota_df['Make'] = Toyota_df.apply(lambda row: row.Type[1], axis = 1)
+Toyota_df['Model'] = Toyota_df.apply(lambda row: row.Type[2], axis = 1)
+Toyota_df['Color_ext'] = Toyota_df.apply(lambda row: row.Additional[1], axis = 1)
+Toyota_df['Color_int'] = Toyota_df.apply(lambda row: row.Additional[2], axis = 1)
+Toyota_df['Transmission_Type'] = Toyota_df.apply(lambda row: row.Additional[3], axis = 1)
+Toyota_df['Drive'] = Toyota_df.apply(lambda row: row.Additional[4], axis = 1)
+Toyota_df['Dealer_Name'] = Toyota_df.apply(lambda row: row.Dealer[1], axis = 1)
+Toyota_df['Dealer_Phone'] = Toyota_df.apply(lambda row: row.Dealer[2], axis = 1)
+Toyota_df['Dealer_Rating'] = Toyota_df.apply(lambda row: row.Dealer[3], axis = 1)
+Toyota_df['Dealer_Distance'] = Toyota_df.apply(lambda row: row.Dealer[4], axis = 1)
+Toyota_df['Price_new'] = Toyota_df['Prices'].astype(str).str[1:]
+Toyota_df['Mileage_new'] = Toyota_df['Mileage'].astype(str).str[:-3]
+Toyota_df = Toyota_df.drop(['Type','Mileage','Prices','Additional','Dealer'], axis=1)
+
+
+
+Toyota_df['Color_ext'] = Toyota_df.Color_ext.replace(r'Int.Color',  '', regex=True)
+Toyota_df['Color_int'] = Toyota_df.Color_int.replace(r'Transmission',  '', regex=True)
+Toyota_df['Transmission_Type'] = Toyota_df.Transmission_Type.replace(r'Drivetrain',  '', regex=True)
+Toyota_df['Dealer_Distance'] = Toyota_df['Dealer_Distance'].str.split('.')
+Toyota_df['Dealer_Rating'] = Toyota_df['Dealer_Rating'].str.split('(')
+
+#break
+
+#certain dealerships don't have views, if they don't have reiviews you cannot use indexing to get # of reviews,
+#function is set up to check length of the column, if it meets requirements then take position [1] else set to 0
+def num_review(row):
+    if len(row['Dealer_Rating']) > 1:
+        review = row['Dealer_Rating'][1][:-8]
+
+    else:
+        review =  '0'
+    return review
+
+Toyota_df['Reviews'] = Toyota_df.apply(num_review,axis=1)
+
+#break
+
+#cars that do not have reviews are in the incorrect order, I will write a function to move these around
+def mismath(row):
+    if row['Reviews'] == '0':
+        move =  row['Dealer_Rating']
+    else:
+        move = row['Dealer_Distance'] 
+        
+    return move
+
+def mismath2(row):
+    if row['Reviews'] == '0':
+        move =  [np.nan,np.nan]
+    else:
+        move = row['Dealer_Rating'] 
+        
+    return move
+    
+#break
+
+
+Toyota_df['Dealer_Distance'] = Toyota_df.apply(mismath,axis=1)
+Toyota_df['Dealer_Rating'] = Toyota_df.apply(mismath2,axis=1)
+Toyota_df['Dealer_Rating'] = Toyota_df.apply(lambda row: row.Dealer_Rating[0], axis = 1)
+Toyota_df['Dealer_Distance'] = Toyota_df.apply(lambda row: row.Dealer_Distance[0], axis = 1)
+
+
+#cars that do not have reviews are in the incorrect order, I will write a function to move these around
+def mismath(row):
+    if row['Reviews'] == '0':
+        move =  row['Dealer_Distance'][:-10]
+    else:
+        move = row['Dealer_Distance'] 
+        
+    return move
+
+Toyota_df['Dealer_Distance'] = Toyota_df.apply(mismath,axis=1)
+
+Toyota_df['Dealer_Distance'] =Toyota_df['Dealer_Distance'].str[:-2]
+
+Toyota_df['Mileage'] = Toyota_df.Mileage_new.apply(lambda x: pd.to_numeric(x.replace(',',''), errors='coerce'))
+Toyota_df['Price'] = Toyota_df.Price_new.apply(lambda x: pd.to_numeric(x.replace(',',''), errors='coerce'))
+Toyota_df['ModelYear'] = Toyota_df.Model_Year.apply(lambda x: pd.to_numeric(x.replace(',',''), errors='coerce'))
+Toyota_df['Reviews'] = Toyota_df.Reviews.apply(lambda x: pd.to_numeric(x.replace(',',''), errors='coerce'))
+Toyota_df['Dealer_Distance'] = Toyota_df.Dealer_Distance.apply(lambda x: pd.to_numeric(x.replace(',',''), errors='coerce'))
+
+Toyota_df = Toyota_df.drop(['Mileage_new','Price_new','Model_Year'], axis=1)
+
+#rounding the Mileage up to the nearest 1000th full number
+Toyota_df['Rounded_Milage'] = Toyota_df.Mileage.round(-3)
+
+#break
+
+average = pd.pivot_table(Toyota_df,index=['Model','ModelYear'],values=['Price','Mileage'],aggfunc='mean')
+average.reset_index(inplace=True)
+average['Mileage']= average.Mileage.apply(np.ceil)
+average['Price']= average.Price.apply(np.ceil)
+
+#break
+
+def format(x):
+    return "${:.1f}K".format(x/1000)
+average['curreny'] = average['Price'].apply(format)
+
+average['Mileage'] = average.Mileage.astype(int)
+average['miles'] = average.apply(lambda x: "{:,}".format(x['Mileage']), axis=1)
+
+
+
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+from ipywidgets import interact 
+import datetime
+from matplotlib import pyplot
+import plotly.io as pio
+import pickle as pkl
+from ipywidgets.embed import embed_minimal_html
+from ipywidgets import IntSlider
+import warnings
+warnings.filterwarnings('ignore')
+
+def function(model):
+    model_data = average[average['Model']==f'{model}']
+    
+    fig2 = make_subplots(rows=1, cols=1,shared_xaxes=False,vertical_spacing=0.06,
+                         specs=[[{"secondary_y": True},],])  
+    
+    fig2.add_trace(go.Bar(x=model_data.ModelYear.values, y=round(model_data.Price,2),name='Average Proceeds',
+                         text=model_data['curreny'],textposition='outside',textfont_color='Black'),
+                  1, 1)
+    
+    fig2.add_trace(go.Scatter(x=model_data['ModelYear'], y=round(model_data['Mileage'],2),mode='markers',
+                              name="Avg Mileage",marker=dict(size=20, color="darkturquoise")),secondary_y=True,row=1, col=1)
+    
+    fig2.update_layout(yaxis=dict(range=[0,model_data['Price'].max()+5000]),
+                       yaxis_tickprefix = '$', yaxis_tickformat = ',.0f',
+                       yaxis2=dict(range=[0,model_data['Mileage'].max()+20000]),
+                       yaxis2_tickformat = ',.0f',)
+    
+    fig2.update_yaxes(title_text="Average Mileage", secondary_y=True)
+    
+    
+    fig2.update_layout(title=f'<b>Average Proceeds for {model}</b>',title_x=0.5,
+                   xaxis_title='Model Year',
+                   yaxis_title='Used Proceeds',
+                       legend=dict(orientation="h",yanchor="bottom",y=1,xanchor="right", x=.65))
+    
+    
+    fig = make_subplots(rows=1, cols=1,shared_xaxes=False,vertical_spacing=0,
+                    specs=[[{"type": "table"},],])
+    
+    
+    fig.add_trace(go.Table(header=dict(values=['Model Year','Avg Mileage','Avg Price'],font=dict(size=10),align="center"),
+                           cells=dict(values=[model_data.ModelYear,model_data.miles,model_data.curreny],align = "center")),row=1, col=1)
+    
+
+    fig2.show()
+    fig.show()
+function('RAV4')
+# change the cell width
+from IPython.core.display import display, HTML
+display(HTML("<style>.container { width:75% !important; }</style>"))
+
+
+plt.show(interact(function, model=Toyota_df.Model.unique()))
+
+
